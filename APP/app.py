@@ -26,10 +26,23 @@ TASK_OPTIONS = {
     "문장 분류·감정 분석": "text-classification",
     "문장 요약": "summarization",
     "질문 답변": "question-answering",
+    "글 생성": "text-generation",
+    "언어 번역": "translation",
+    "개체명 인식·토큰 분류": "token-classification",
+    "빈칸 채우기": "fill-mask",
+    "문장 유사도 비교": "sentence-similarity",
+    "텍스트 임베딩·특징 추출": "feature-extraction",
     "이미지 분류": "image-classification",
     "이미지 생성": "text-to-image",
-    "음성 인식": "automatic-speech-recognition",
-    "글 생성": "text-generation",
+    "이미지 설명 생성": "image-to-text",
+    "객체 탐지": "object-detection",
+    "이미지·텍스트 이해": "image-text-to-text",
+    "이미지 기반 질문 답변": "visual-question-answering",
+    "이미지 깊이 추정": "depth-estimation",
+    "음성 인식·받아쓰기": "automatic-speech-recognition",
+    "음성·오디오 분류": "audio-classification",
+    "텍스트 음성 변환": "text-to-speech",
+    "음악·오디오 생성": "text-to-audio",
 }
 TASK_LABEL_TO_TAG = {label: tag for label, tag in TASK_OPTIONS.items() if tag}
 PRIORITIES = ["높음", "중", "낮음"]
@@ -60,8 +73,8 @@ if menu == "AI 모델 탐색":
             placeholder="예: bert, resnet, 텍스트분류, 이미지분류",
         )
         st.caption(
-            "한국어 작업명 예시: 텍스트 분류, 감정 분석, 문장 요약, 질문 답변, "
-            "이미지 분류, 이미지 생성, 음성 인식, 글 생성"
+            "한국어 작업명 예시: 텍스트 분류, 번역, 개체명 인식, 문장 요약, "
+            "이미지 분류, 객체 탐지, 이미지 설명, 음성 인식, 음성 생성 등"
         )
         search_button = st.form_submit_button("모델 검색", type="primary")
 
@@ -131,6 +144,10 @@ if menu == "AI 모델 탐색":
                 col_task, col_downloads = st.columns(2)
                 col_task.write("**작업 분류:** " + api.get_task_display_name(model["task"]))
                 col_downloads.write("**다운로드 수:** " + format(model["downloads"], ","))
+                st.markdown("**모델 간단 설명**")
+                st.write(model.get("description") or api.TASK_DESCRIPTIONS.get(
+                    model["task"], "모델의 상세 설명은 모델 페이지에서 확인할 수 있습니다."
+                ))
                 st.link_button("Hugging Face 모델 페이지 열기", model["model_url"])
 
                 with st.form("save_model_form_" + str(index)):
