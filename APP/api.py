@@ -184,12 +184,68 @@ def _read_model_card_summary(model_id: str) -> str:
     return ""
 
 
+@lru_cache(maxsize=512)
+def _translate_description_to_korean(text: str) -> str:
+    """모델 카드의 설명 문장을 한국어로 번역합니다.
+
+    공개 모델 카드의 짧은 소개 문장만 번역 서비스로 전달합니다.
+    번역 서비스가 응답하지 않거나 한국어 번역을 얻지 못하면 빈 문자열을
+    반환하여 호출 측에서 작업별 한국어 설명을 표시하도록 합니다.
+    """
+    text = " ".join((text or "").split()).strip()
+    if not text:
+        return ""
+
+    # 이미 한국어로 작성된 설명은 불필요하게 외부 번역 요청을 보내지 않습니다.
+    hangul_count = len(re.findall(r"[가-힣]", text))
+    # 설명의 대부분이 이미 한국어인 경우에만 원문을 유지합니다.
+    # 일부 한국어 문구가 섞인 영어 설명은 한국어로 번역합니다.
+    if hangul_count / max(len(text), 1) >= 0.45:
+        return text
+
+    try:
+        response = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={
+                "client": "gtx",
+                "sl": "auto",
+                "tl": "ko",
+                "dt": "t",
+                "q": text[:1200],
+            },
+            timeout=(3, 6),
+            headers={"User-Agent": "AI-Model-Finder/1.0"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        translated_parts = data[0] if isinstance(data, list) and data else []
+        translated = "".join(
+            str(part[0]) for part in translated_parts
+            if isinstance(part, list) and part and part[0]
+        ).strip()
+        translated = re.sub(r"\s+", " ", translated)
+        translated_hangul_count = len(re.findall(r"[가-힣]", translated))
+        if translated and translated_hangul_count >= 3:
+            return translated
+    except (requests.RequestException, ValueError, TypeError, IndexError, KeyError):
+        pass
+
+    return ""
+
+
 def get_model_description(model_id: str, task: str) -> str:
-    """모델 카드 소개가 있으면 우선 사용하고, 없으면 작업 설명을 제공합니다."""
+    """모델 카드 설명을 한국어로 제공하고, 실패하면 한국어 작업 설명을 반환합니다."""
     summary = _read_model_card_summary(model_id)
     if summary:
-        return summary
-    return TASK_DESCRIPTIONS.get(task, "이 모델의 자세한 설명은 모델 페이지에서 확인할 수 있습니다.")
+        korean_summary = _translate_description_to_korean(summary)
+        if korean_summary:
+            return korean_summary
+
+    # 번역 실패 또는 모델 카드 소개가 없는 경우에도 영어가 화면에 노출되지 않게 합니다.
+    return TASK_DESCRIPTIONS.get(
+        task,
+        "이 모델은 Hugging Face에 등록된 인공지능 모델입니다. 자세한 기능과 사용 방법은 모델 페이지에서 확인할 수 있습니다.",
+    )
 
 
 def search_external_models(keyword: str, task: str = None, limit: int = 10) -> list[dict[str, Any]]:
@@ -270,13 +326,13 @@ def search_external_models(keyword: str, task: str = None, limit: int = 10) -> l
             "description": TASK_DESCRIPTIONS.get(model_task, "모델의 상세 설명은 모델 페이지에서 확인할 수 있습니다."),
         })
 
-    # 모델 카드 소개 문단을 병렬로 가져와 검색 결과에 보충합니다.
+    # 모델 카드 소개를 가져와 한국어로 번역합니다.
+    # 카드가 없거나 번역에 실패하면 작업별 한국어 설명을 그대로 사용합니다.
     with ThreadPoolExecutor(max_workers=5) as executor:
         descriptions = list(executor.map(
-            lambda row: _read_model_card_summary(row["model_id"]), results
+            lambda row: get_model_description(row["model_id"], row["task"]), results
         ))
     for row, description in zip(results, descriptions):
-        if description:
-            row["description"] = description
+        row["description"] = description
 
     return results
