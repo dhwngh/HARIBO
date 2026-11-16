@@ -1,7 +1,6 @@
 """Hugging Face 모델 검색 및 한국어 작업 분류 변환 모듈."""
 
 import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from functools import lru_cache
@@ -339,19 +338,42 @@ def _translate_description_to_korean(text: str) -> str:
     return ""
 
 
-def get_model_description(model_id: str, task: str) -> str:
-    """모델의 실제 기능을 설명하고, 기술 안내는 작업 기능 설명으로 대체합니다."""
-    summary = _read_model_card_summary(model_id)
-    if summary:
-        korean_summary = _translate_description_to_korean(summary)
-        if korean_summary and not _is_technical_or_usage_text(korean_summary):
-            return korean_summary
+# 검색 결과의 설명은 모델 카드의 설치·호출 안내를 그대로 보여주지 않고,
+# Hugging Face 작업 분류를 바탕으로 아래의 통일된 한국어 문장으로 표시합니다.
+TASK_FUNCTION_PHRASES = {
+    "text-classification": "텍스트 분류",
+    "summarization": "문장 요약",
+    "question-answering": "질문에 대한 답변 생성",
+    "text-generation": "텍스트 생성",
+    "translation": "언어 번역",
+    "token-classification": "개체명 및 토큰 분류",
+    "fill-mask": "문장의 빈칸에 들어갈 단어 예측",
+    "sentence-similarity": "문장 간 의미 유사도 비교",
+    "feature-extraction": "텍스트 특징 추출 및 임베딩 생성",
+    "image-classification": "이미지 분류",
+    "text-to-image": "텍스트를 바탕으로 이미지 생성",
+    "image-to-text": "이미지 내용을 텍스트로 설명",
+    "object-detection": "이미지 속 객체 탐지",
+    "image-text-to-text": "이미지와 텍스트 내용 이해 및 응답",
+    "visual-question-answering": "이미지에 관한 질문에 답변",
+    "depth-estimation": "이미지의 깊이 추정",
+    "automatic-speech-recognition": "음성을 텍스트로 변환",
+    "audio-classification": "오디오 분류",
+    "text-to-speech": "텍스트를 음성으로 변환",
+    "text-to-audio": "텍스트를 바탕으로 오디오 생성",
+}
 
-    # 체크포인트 로딩법이나 라이브러리 안내 대신, 해당 작업에서 모델이 하는 일을 설명합니다.
-    return TASK_DESCRIPTIONS.get(
-        task,
-        "이 모델은 입력 데이터를 분석해 학습된 작업을 수행하는 인공지능 모델입니다. 구체적인 기능은 모델 페이지의 소개를 확인해주세요.",
-    )
+def get_model_description(model_id: str, task: str) -> str:
+    """작업 분류를 바탕으로 AI 모델의 기능을 통일된 한국어 문장으로 설명합니다.
+
+    예: '이 AI 모델은 텍스트 분류 기능을 수행하는 모델입니다.'
+    모델 카드의 from_pretrained, 체크포인트, 설치·호출 방법 등은
+    기능 설명에 혼입되지 않도록 사용하지 않습니다.
+    """
+    function = TASK_FUNCTION_PHRASES.get(task)
+    if function is None:
+        function = get_task_display_name(task)
+    return f"이 AI 모델은 {function} 기능을 수행하는 모델입니다."
 
 
 def search_external_models(keyword: str, task: str = None, limit: int = 10) -> list[dict[str, Any]]:
@@ -432,13 +454,8 @@ def search_external_models(keyword: str, task: str = None, limit: int = 10) -> l
             "description": TASK_DESCRIPTIONS.get(model_task, "모델의 상세 설명은 모델 페이지에서 확인할 수 있습니다."),
         })
 
-    # 모델 카드 소개를 가져와 한국어로 번역합니다.
-    # 카드가 없거나 번역에 실패하면 작업별 한국어 설명을 그대로 사용합니다.
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        descriptions = list(executor.map(
-            lambda row: get_model_description(row["model_id"], row["task"]), results
-        ))
-    for row, description in zip(results, descriptions):
-        row["description"] = description
+    # 작업 분류에 맞춘 통일된 한국어 기능 설명을 각 검색 결과에 추가합니다.
+    for row in results:
+        row["description"] = get_model_description(row["model_id"], row["task"])
 
     return results
