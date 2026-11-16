@@ -151,68 +151,175 @@ def _friendly_http_error(status_code: int) -> str:
     return "모델 검색 요청에 실패했습니다. 입력한 검색어를 확인한 뒤 다시 시도해주세요."
 
 
+# 모델 카드에서 '실제 기능'이 아닌 설치·호출·체크포인트 안내를 걸러냅니다.
+# 이런 문장은 번역해도 사용자에게 모델의 기능을 설명하지 못하므로 표시하지 않습니다.
+TECHNICAL_OR_USAGE_PATTERNS = [
+    r"\bfrom_pretrained\b", r"\bAutoModel\b", r"\bAutoTokenizer\b",
+    r"\bBARTForConditionalGeneration\b", r"\bAutoModelFor\w+\b",
+    r"\b(load|loaded|loading)\s+(this\s+)?(model|checkpoint|weights)\b",
+    r"\bshould\s+be\s+loaded\s+into\b", r"\bcheckpoint\b",
+    r"\b(pip\s+install|install\s+the\s+package|installation)\b",
+    r"\b(usage|how\s+to\s+use|getting\s+started|inference\s+code|example\s+code)\b",
+    r"\b(refer\s+to|see)\s+.{0,50}\b(documentation|docs|tutorial)\b",
+    r"\b(license|citation|bibliography|training\s+arguments|fine[- ]?tuning\s+instructions)\b",
+    r"이\s*체크포인트", r"체크포인트.*(로드|불러와)", r"from_pretrained",
+    r"(모델|체크포인트)를?\s*(로드|불러와야)", r"(설치|실행)\s*(방법|명령어|코드)",
+    r"(사용|추론)\s*예제", r"코드\s*예제", r"문서(를|에서)\s*(참조|확인)",
+    r"라이선스", r"인용\s*방법", r"학습\s*명령어",
+]
+
+TECHNICAL_OR_USAGE_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in TECHNICAL_OR_USAGE_PATTERNS),
+    re.IGNORECASE,
+)
+
+FUNCTIONAL_CUES_RE = re.compile(
+    r"\b(designed to|built to|can be used to|used for|capable of|enables?|"
+    r"generates?|summarizes?|translates?|classifies?|detects?|recognizes?|"
+    r"extracts?|converts?|answers?|identifies?|predicts?|understands?)\b|"
+    r"(분류|요약|번역|생성|탐지|인식|추출|변환|예측|답변|질문에 답|설명|분석)"
+)
+
+IGNORED_MODEL_CARD_HEADINGS_RE = re.compile(
+    r"^(usage|how to use|getting started|installation|inference|examples?|"
+    r"training|fine[- ]?tuning|limitations?|license|citation|references?|"
+    r"technical details|implementation|requirements|사용 방법|설치|실행 방법|"
+    r"추론 방법|학습 방법|코드 예제|라이선스|인용|제한 사항)\b",
+    re.IGNORECASE,
+)
+
+PREFERRED_MODEL_CARD_HEADINGS_RE = re.compile(
+    r"^(overview|model description|description|abstract|intended use|"
+    r"what it does|capabilities|summary|개요|모델 설명|모델 소개|주요 기능|활용 목적)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_technical_or_usage_text(text: str) -> bool:
+    """모델 기능이 아니라 코드 사용법·체크포인트 안내인 문장을 판별합니다."""
+    return bool(TECHNICAL_OR_USAGE_RE.search(text or ""))
+
+
+def _clean_markdown_paragraph(paragraph: str) -> str:
+    """Markdown 문단에서 이미지·코드·서식 기호를 제거합니다."""
+    lines = []
+    in_code_block = False
+    for raw_line in paragraph.splitlines():
+        line = raw_line.strip()
+        if line.startswith("```") or line.startswith("~~~"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block or not line:
+            continue
+        if line.startswith(("![", "<", "|")):
+            continue
+        line = re.sub(r"!\[[^]]*\]\([^)]*\)", " ", line)
+        line = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", line)
+        line = re.sub(r"`([^`]+)`", r"\1", line)
+        line = re.sub(r"<[^>]+>", " ", line)
+        line = re.sub(r"^[#>*+\-\s]+", "", line)
+        line = re.sub(r"[*_~]", "", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:
+            lines.append(line)
+    return " ".join(lines).strip()
+
+
 @lru_cache(maxsize=256)
 def _read_model_card_summary(model_id: str) -> str:
-    """Hugging Face 모델 카드에서 소개 문단을 짧게 가져옵니다."""
+    """모델 카드에서 실제 기능을 설명하는 문장을 우선 추출합니다.
+
+    from_pretrained, checkpoint, 설치·사용 예제 같은 기술 안내는 제외합니다.
+    기능 소개를 찾지 못하면 빈 문자열을 반환해 작업 분류별 설명을 사용합니다.
+    """
     url = f"https://huggingface.co/{model_id}/raw/main/README.md"
     try:
-        response = requests.get(url, timeout=(2, 4), headers={"User-Agent": "AI-Model-Finder/1.0"})
+        response = requests.get(
+            url, timeout=(2, 5), headers={"User-Agent": "AI-Model-Finder/1.0"}
+        )
         if response.status_code != 200:
             return ""
-        text = response.text[:30000]
-        # YAML front matter는 설명 문장으로 취급하지 않습니다.
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            text = parts[2] if len(parts) == 3 else text
-        paragraphs = re.split(r"\n\s*\n", text)
+
+        raw = response.text[:50000]
+        # YAML front matter는 모델의 소개 문장으로 사용하지 않습니다.
+        if raw.startswith("---"):
+            parts = raw.split("---", 2)
+            raw = parts[2] if len(parts) == 3 else raw
+
+        paragraphs = re.split(r"\n\s*\n", raw)
+        candidates: list[tuple[int, str]] = []
+        current_heading = ""
+        ignored_section = False
+        preferred_section = False
+
         for paragraph in paragraphs:
-            lines = []
-            for line in paragraph.splitlines():
-                line = line.strip()
-                if not line or line.startswith(("#", "<", "```", "![", "|", "- ", "* ")):
+            stripped = paragraph.strip()
+            if not stripped:
+                continue
+
+            # 제목을 기준으로 Usage/Training 섹션을 건너뛰고 기능 소개 섹션을 우선합니다.
+            heading_match = re.match(r"^#{1,6}\s+(.+?)\s*#*$", stripped)
+            if heading_match:
+                current_heading = re.sub(r"[*`]", "", heading_match.group(1)).strip()
+                ignored_section = bool(IGNORED_MODEL_CARD_HEADINGS_RE.search(current_heading))
+                preferred_section = bool(PREFERRED_MODEL_CARD_HEADINGS_RE.search(current_heading))
+                continue
+            if ignored_section:
+                continue
+
+            cleaned = _clean_markdown_paragraph(paragraph)
+            if len(cleaned) < 35 or _is_technical_or_usage_text(cleaned):
+                continue
+
+            # 문단 안에서도 기능을 설명하는 문장만 남깁니다.
+            sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if len(sentence) < 30 or _is_technical_or_usage_text(sentence):
                     continue
-                line = re.sub(r"`([^`]+)`", r"\1", line)
-                line = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", line)
-                line = re.sub(r"[*_>#]", "", line).strip()
-                if line:
-                    lines.append(line)
-            summary = " ".join(lines)
-            if len(summary) >= 35:
-                return summary[:260].rstrip() + ("…" if len(summary) > 260 else "")
+                if not re.search(r"[A-Za-z가-힣]", sentence):
+                    continue
+                score = 3 if preferred_section else 0
+                if FUNCTIONAL_CUES_RE.search(sentence):
+                    score += 3
+                if re.search(r"\b(model|system|tool)\b|모델|시스템", sentence, re.I):
+                    score += 1
+                # 짧은 소개 문장에 우선순위를 두고, 지나치게 긴 설명은 감점합니다.
+                if len(sentence) <= 260:
+                    score += 1
+                else:
+                    score -= 1
+                candidates.append((score, sentence))
+
+        if not candidates:
+            return ""
+
+        # 기능 설명 신호가 있는 문장을 가장 먼저 선택합니다.
+        candidates.sort(key=lambda item: (item[0], -len(item[1])), reverse=True)
+        best_score, best_sentence = candidates[0]
+        if best_score < 2:
+            return ""
+        best_sentence = re.sub(r"\s+", " ", best_sentence).strip()
+        return best_sentence[:500].rstrip() + ("…" if len(best_sentence) > 500 else "")
     except requests.RequestException:
-        pass
-    return ""
+        return ""
 
 
 @lru_cache(maxsize=512)
 def _translate_description_to_korean(text: str) -> str:
-    """모델 카드의 설명 문장을 한국어로 번역합니다.
-
-    공개 모델 카드의 짧은 소개 문장만 번역 서비스로 전달합니다.
-    번역 서비스가 응답하지 않거나 한국어 번역을 얻지 못하면 빈 문자열을
-    반환하여 호출 측에서 작업별 한국어 설명을 표시하도록 합니다.
-    """
+    """모델 카드의 기능 설명을 한국어로 번역합니다."""
     text = " ".join((text or "").split()).strip()
-    if not text:
+    if not text or _is_technical_or_usage_text(text):
         return ""
 
-    # 이미 한국어로 작성된 설명은 불필요하게 외부 번역 요청을 보내지 않습니다.
     hangul_count = len(re.findall(r"[가-힣]", text))
-    # 설명의 대부분이 이미 한국어인 경우에만 원문을 유지합니다.
-    # 일부 한국어 문구가 섞인 영어 설명은 한국어로 번역합니다.
     if hangul_count / max(len(text), 1) >= 0.45:
         return text
 
     try:
         response = requests.get(
             "https://translate.googleapis.com/translate_a/single",
-            params={
-                "client": "gtx",
-                "sl": "auto",
-                "tl": "ko",
-                "dt": "t",
-                "q": text[:1200],
-            },
+            params={"client": "gtx", "sl": "auto", "tl": "ko", "dt": "t", "q": text[:1200]},
             timeout=(3, 6),
             headers={"User-Agent": "AI-Model-Finder/1.0"},
         )
@@ -225,26 +332,25 @@ def _translate_description_to_korean(text: str) -> str:
         ).strip()
         translated = re.sub(r"\s+", " ", translated)
         translated_hangul_count = len(re.findall(r"[가-힣]", translated))
-        if translated and translated_hangul_count >= 3:
+        if translated and translated_hangul_count >= 3 and not _is_technical_or_usage_text(translated):
             return translated
     except (requests.RequestException, ValueError, TypeError, IndexError, KeyError):
         pass
-
     return ""
 
 
 def get_model_description(model_id: str, task: str) -> str:
-    """모델 카드 설명을 한국어로 제공하고, 실패하면 한국어 작업 설명을 반환합니다."""
+    """모델의 실제 기능을 설명하고, 기술 안내는 작업 기능 설명으로 대체합니다."""
     summary = _read_model_card_summary(model_id)
     if summary:
         korean_summary = _translate_description_to_korean(summary)
-        if korean_summary:
+        if korean_summary and not _is_technical_or_usage_text(korean_summary):
             return korean_summary
 
-    # 번역 실패 또는 모델 카드 소개가 없는 경우에도 영어가 화면에 노출되지 않게 합니다.
+    # 체크포인트 로딩법이나 라이브러리 안내 대신, 해당 작업에서 모델이 하는 일을 설명합니다.
     return TASK_DESCRIPTIONS.get(
         task,
-        "이 모델은 Hugging Face에 등록된 인공지능 모델입니다. 자세한 기능과 사용 방법은 모델 페이지에서 확인할 수 있습니다.",
+        "이 모델은 입력 데이터를 분석해 학습된 작업을 수행하는 인공지능 모델입니다. 구체적인 기능은 모델 페이지의 소개를 확인해주세요.",
     )
 
 
