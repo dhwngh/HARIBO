@@ -14,6 +14,258 @@ st.set_page_config(
     layout="wide",
 )
 
+
+# -------------------- 화면 디자인 --------------------
+st.markdown(
+    """
+    <style>
+    /* 전체 화면 */
+    :root {
+        --ink: #172b4d;
+        --muted: #64748b;
+        --line: #e4eaf2;
+        --surface: #ffffff;
+        --surface-soft: #f7f9fc;
+        --accent: #287d82;
+        --accent-dark: #1f6268;
+        --accent-soft: #e8f4f3;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(ellipse at 85% 0%, rgba(215, 234, 244, 0.42), transparent 34%),
+            linear-gradient(180deg, #f4f7fb 0%, #fbfcfe 46%, #f6f8fb 100%);
+        color: var(--ink);
+    }
+
+    [data-testid="stHeader"] {
+        background: rgba(248, 250, 253, 0.82);
+        backdrop-filter: blur(10px);
+    }
+
+    .block-container {
+        max-width: 1240px;
+        padding-top: 2.25rem;
+        padding-bottom: 4rem;
+    }
+
+    /* 제목과 본문 위계 */
+    h1, h2, h3 {
+        color: var(--ink) !important;
+        letter-spacing: -0.035em;
+    }
+
+    h1 {
+        font-size: clamp(2rem, 3.2vw, 2.7rem) !important;
+        font-weight: 820 !important;
+        line-height: 1.2 !important;
+        margin-bottom: 0.35rem !important;
+    }
+
+    h2 {
+        font-size: 1.55rem !important;
+        font-weight: 760 !important;
+        margin-top: 1.25rem !important;
+        margin-bottom: 0.55rem !important;
+    }
+
+    h3 {
+        font-size: 1.12rem !important;
+        font-weight: 720 !important;
+        line-height: 1.45 !important;
+    }
+
+    p, li, label, [data-testid="stMarkdownContainer"] {
+        line-height: 1.65;
+    }
+
+    [data-testid="stCaptionContainer"] {
+        color: var(--muted);
+        font-size: 0.83rem;
+        line-height: 1.55;
+    }
+
+    /* 좌측 메뉴 */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #edf3f8 0%, #f4f7fb 100%);
+        border-right: 1px solid #e1e8f0;
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.35rem;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+        color: #52657d;
+        font-size: 0.82rem;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] > label {
+        color: #31445f;
+        font-weight: 700;
+    }
+
+    /* 검색 결과 및 저장 모델 카드 */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid var(--line) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 5px 18px rgba(31, 54, 82, 0.045);
+        padding: 0.35rem 0.45rem;
+        transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: #cad8e5 !important;
+        box-shadow: 0 9px 24px rgba(31, 54, 82, 0.075);
+    }
+
+    /* 입력 영역 */
+    [data-testid="stForm"] {
+        background: rgba(247, 249, 252, 0.88);
+        border: 1px solid #e8edf3;
+        border-radius: 15px;
+        padding: 1rem 1.05rem 0.75rem;
+    }
+
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stWidgetLabel"] label,
+    .stTextInput label,
+    .stTextArea label,
+    .stSelectbox label {
+        color: #344761 !important;
+        font-size: 0.9rem !important;
+        font-weight: 680 !important;
+    }
+
+    [data-baseweb="input"] > div,
+    [data-baseweb="textarea"] > div,
+    [data-baseweb="select"] > div {
+        background: #ffffff;
+        border: 1px solid #d9e2ec;
+        border-radius: 10px;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+
+    [data-baseweb="input"] > div:focus-within,
+    [data-baseweb="textarea"] > div:focus-within,
+    [data-baseweb="select"] > div:focus-within {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 3px rgba(40, 125, 130, 0.12);
+    }
+
+    input, textarea {
+        color: #1f334d !important;
+    }
+
+    /* 버튼 */
+    .stButton button,
+    [data-testid="stFormSubmitButton"] button,
+    [data-testid="stLinkButton"] a {
+        min-height: 2.55rem;
+        border-radius: 10px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    .stButton button[kind="primary"],
+    [data-testid="stFormSubmitButton"] button[kind="primary"],
+    [data-testid="stFormSubmitButton"] button[kind="primaryFormSubmit"] {
+        background: var(--accent) !important;
+        border: 1px solid var(--accent) !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 10px rgba(40, 125, 130, 0.16);
+    }
+
+    .stButton button[kind="primary"]:hover,
+    [data-testid="stFormSubmitButton"] button[kind="primary"]:hover,
+    [data-testid="stFormSubmitButton"] button[kind="primaryFormSubmit"]:hover {
+        background: var(--accent-dark) !important;
+        border-color: var(--accent-dark) !important;
+        box-shadow: 0 6px 14px rgba(40, 125, 130, 0.22);
+        transform: translateY(-1px);
+    }
+
+    .stButton button[kind="secondary"],
+    [data-testid="stFormSubmitButton"] button[kind="secondary"] {
+        background: #ffffff !important;
+        color: #314761 !important;
+        border: 1px solid #d8e1eb !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background: var(--accent-soft);
+        border: 1px solid #cfe5e3;
+        color: #205e63 !important;
+        text-decoration: none !important;
+        padding: 0.45rem 0.85rem;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background: #dcefed;
+        border-color: #afd4d1;
+        transform: translateY(-1px);
+    }
+
+    /* 저장 현황 지표 */
+    [data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        padding: 1rem 1.15rem;
+        box-shadow: 0 4px 14px rgba(31, 54, 82, 0.04);
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: #61738a;
+        font-size: 0.84rem;
+        font-weight: 650;
+    }
+
+    [data-testid="stMetricValue"] {
+        color: var(--ink);
+        font-weight: 800;
+        letter-spacing: -0.035em;
+    }
+
+    /* 안내·오류 메시지 */
+    [data-testid="stAlert"] {
+        border-radius: 12px;
+        border: 1px solid #e2e9f0;
+        box-shadow: 0 3px 10px rgba(31, 54, 82, 0.035);
+    }
+
+    hr {
+        border-color: #dfe7ef;
+        margin-top: 1.15rem;
+        margin-bottom: 1.15rem;
+    }
+
+    /* 작은 화면에서 여백과 카드 간격 조정 */
+    @media (max-width: 760px) {
+        .block-container {
+            padding: 1.35rem 1rem 2.5rem;
+        }
+
+        h1 {
+            font-size: 1.85rem !important;
+        }
+
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 14px !important;
+            padding: 0.2rem 0.25rem;
+        }
+
+        [data-testid="stForm"] {
+            padding: 0.8rem 0.75rem 0.6rem;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 try:
     database.create_table()
 except sqlite3.Error as error:
